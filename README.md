@@ -13,16 +13,16 @@ Used Adeept Arduino Two Wheel Balancing Robot kit.
 Amazon Link: https://www.amazon.com/Adeept-Self-Balancing-Accelerometer-Gyroscope-Avoidance/dp/B076XVD9B9
 
 **Software**
+    
+    Main
+        selfBalance.ino //main code 
 
-selfBalance.ino //main code 
-
-_Libraries_
-
-    PIDController //my library to import in Arduino   
-    AngleKalmanFilter //my library to import in Arduino 
-    I2CDev1 //third party     
-    MPU6050 //third party
-    MsTimer2 //third party 
+    Libraries
+        PIDController //my library to import in Arduino   
+        AngleKalmanFilter //my library to import in Arduino 
+        I2CDev1 //third party     
+        MPU6050 //third party
+        MsTimer2 //third party 
 
 Third party libraries can be found here: 
 https://www.adrive.com/public/97GXSs/Adeept_SelfBalancingRobotKit-V1.0.zip
@@ -51,4 +51,4 @@ Having trouble with setting the PID constants of the controller where it can onl
 
 **For Personal Notes and other links**
 
-Please refer to [notes](../NOTES). These are my own personal notes whilst working on this side project. For example, the theory behind Kalman Filter, how to handle raw data from sensors, tuning PID constants, etc. 
+Please refer to [notes](NOTES). These are my own personal notes whilst working on this side project. For example, the theory behind Kalman Filter, how to handle raw data from sensors, tuning PID constants, etc. 
