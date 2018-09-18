@@ -9,8 +9,7 @@ The following side project is to write my own Kalman Filter and PID controller t
 
 **Hardware**
 
-Used Adeept Arduino Two Wheel Balancing Robot kit. 
-Amazon Link: https://www.amazon.com/Adeept-Self-Balancing-Accelerometer-Gyroscope-Avoidance/dp/B076XVD9B9
+Used Adeept Arduino Two Wheel Balancing Robot kit. [Amazon Link](https://www.amazon.com/Adeept-Self-Balancing-Accelerometer-Gyroscope-Avoidance/dp/B076XVD9B9)
 
 **Software**
     
@@ -49,6 +48,6 @@ Having trouble with setting the PID constants of the controller where it can onl
 1. [Adeept's Provided Code](https://www.adrive.com/public/97GXSs)
 2. [Lauszus Balancing Robot](https://github.com/TKJElectronics/BalancingRobotArduino)
 
-**For Personal Notes and other links**
+**More FYI**
 
-Please refer to [notes](NOTES). These are my own personal notes whilst working on this side project. For example, the theory behind Kalman Filter, how to handle raw data from sensors, tuning PID constants, etc. 
+Please refer to [notes](NOTES). These are my own personal notes whilst working on this side project. For example, it contains my write-up of the theory behind Kalman Filter, how to handle raw data from sensors, tuning PID constants, etc. 
