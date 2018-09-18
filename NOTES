@@ -1,0 +1,232 @@
+--Calculation / Set-up -- 
+    Specifically, the angle we care about is the pitch (y, z). 
+        atan2(y, z) 
+
+        We would like pitch to stay at 0 (vertical upright)
+
+    Feed this into our Kalman Filter. 
+
+--Figuring out Angle orientation/Calibrating Sensor--
+
+    If Upright: 
+        ax - 413
+        ay - -879
+        az - 16446
+        gx - -770
+        gy - -218
+        gz - 82
+
+
+    If fall forward: ( increasing y, adding gravity, z positive)
+        ax - 329
+        ay - 13973
+        az - 8052
+        gx - -771
+        gy - -216
+        gz - 80
+
+
+        ~pitch 60 degree forward 
+
+    If fall back: 
+        ax - 1093
+        ay - -15430
+        az - 5846
+        gx - -783
+        gy - -212
+        gz - 82
+
+
+        ~pitch -60 degree back
+
+    gyroRate = (gyroAdc-gyroZero)/sensitivity
+        -sensitivity from MPU6050 spec sheet is 131
+        -gyroZero is obtained from initial calibration at rest
+        -should be using gx - rotation along the x-axis gives you rate change of pitch
+
+    Code in Main looop to test pitch:
+        /* Loop to check if it correctly identifies vertical as phi=0. Forward = CW = 0 to -pi; Backward = CCW = 0 to pi. */
+        mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+        Serial.println("New:");
+        Serial.println(ay);
+        Serial.println(az);
+        float anglePitch = getAngleDegree(ay, az);
+        Serial.println(anglePitch);    
+        //Gyroscope value reading needs to subtract away the starting bias and divide byb sensitivity
+        Serial.println("gx: ");
+        Serial.println(gx);    
+        float gx2 = -1*(gx - gxBias)/131.0f; //gyro has opposite convention of pos/neg
+        Serial.println(gx2);    
+        delay(500);
+
+--Putting everything together -- 
+Code in loop: 
+  unsigned long currentMillis = millis();
+  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  float dt = (currentMillis - prevMillis)/1000.0f;
+  runKalman(dt);
+  float motorPwm = pidPitch.update(pitchAngle);
+  Serial.print("PID: "); Serial.println(motorPwm);
+  motorControl(AIN1,AIN2, motorPwm);
+  motorControl(BIN1,BIN2, motorPwm);
+  prevMillis = currentMillis;
+
+--Tuning PID-- (manual)
+1. Set P until system oscillates. 
+    -Found when Kp ~ 15.25
+2. Start increasing Ki so it returns back to zero position.
+    ~ Ki = 0.18 
+    ~ Once I got Kp = 15.25 and Ki = 0.18, I upped sampling rate from 100ms to 50ms.
+3. Then set D to smooth out the oscillations.
+
+--Motor Control-- 
+Right motor is stiffer/locks more 
+    DEAD ZONE for Left Motor = 0-45 PWM
+    DEAD ZONE for Right Motor = 0-75 PWM 
+
+
+--Complementary Filter--
+    -Reason: gyroscope becomes noiser as time passes due to drift 
+    -therefore, gyroscope measurements goes through a high-pass filter ; accelerometer goes through a low-pass filter 
+    -Laymen's expression: 
+        -Trust gyroscope short-term fast changes, trust accelerometer long-term slow changes
+
+    Equation: 
+        filter = 0.98 (theta - dt * gyro) - 0.02 * acc
+            :Theta = Angle of the robot / tilt 
+            :dt = change in time 
+            :gyro = gyro measurement 
+            :acc = accelerometer measurement
+
+
+--Kalman Filter-- [Derivation/Explanation]
+Predict Phase: [Motion Update]
+    1. x_-hat = F * x + B*u 
+        where:
+            -x_-hat is the a priori estimate. Laymen: predicted state 
+            -F is our state transition function. 
+            -x is our current state
+            -B is our control input
+            -u is some motion noise, assumed gaussian / white noise 
+
+        Can think of this as Total Probability and Convolution (i.e. addition) 
+        In term of Gaussian with some m and o in a 1D case:
+            m_new = m + u (u is the motion)
+            o_new^2 = o^2 + r^2 (r is covariance of motion)
+
+
+    2. P_-hat = Covariance(x_-hat) = FPF^T + Q 
+        where: 
+            -P_-hat is the covariance of the priori estimate. 
+            -P is the covariance of the priori estimate one iteration before. 
+            -F is the state transition function 
+            -Q is the covariance of u (the motion noise)
+
+Update Phase:    
+    
+    x_hat = x_-hat + K*y
+        where:
+            -K is the Kalman Gain 
+            -y is called the innovation 
+
+
+        Laymen's description: 
+            The new state x_hat is the multiplication of two probability densities/function - either one from predict or the other from measurement 
+    
+        Innovation : z - Hx_-hat 
+            -z are the measurements 
+            -H is the measurement function
+
+        Intuition: 
+            If we trust our prediction more, we expect K to be small. Else, if process/predict is noisy, we expect K to be large. Thus, can think of K as: 
+
+                K = Factor(Process Noise) / Factor(Measurement Noise)
+                    - Process Noise = P_-hat * H^T 
+                    - Measurement Noise = HP_-hatH^T+ R
+                        -Where R is the covariance of measurement noise 
+
+                No process noise: lim P_-hat ->0, K=0
+                    x_hat = x_-hat + K*y 
+                    x_hat = x_-hat + 0 = x_-hat (equivalent to just the predicted measurement)
+
+                No measurement noise: lim R->0, K = 1/H, 
+                    x_hat = x_-hat + K*y 
+                    x_hat = x_-hat + 1/H(z - H*x_-hat)
+                    x_hat = z (equivalent to just the measurement)
+
+
+           Measurement update can be thought of as Bayes' rule. What's the probability of the measurement given the prior. 
+
+    P_hat = (I-KH)P_-hat
+        -lastly, update the covariance of our newly calculated x_hat
+        -think cov^2 - k*cov^2 ... so :
+            (1-k)*cov^2
+                -in this case k is Kalman Gain projected onto Measurement space 
+                -1 * cov^2 is like Identity? 
+                -i.e. (1-k) matrix would be (I - K*H)
+
+
+In a multivariate case, can typically be separated as :
+    Observables - i.e. states that we can measure
+    Hiddens  - i.e. states that we know based on observables 
+
+    ex: position = observable, velocity = hidden 
+
+    Then what we are doing is multiplying the prior (we know observable, but not hidden) with the correlation of observable/hidden to give new probability distribution, i.e. the posterior. 
+
+Terminologies
+    Variance - is how spread that variable is assuming Gaussian distribution 
+    Covariance - how do two variables correlate with each other. 
+        - covar(x, y) = E|xy| - E|x|E|y| 
+        - covar = 0 if variables are completely independent 
+
+
+--Why Sensor Fusion--
+Q1: Why not just accelerometer alone? 
+    -Cannot distinguish if translational movement (i.e. the robot is moving forward/backward) or tilting 
+        -Static tilted pendulum vs moving tilted pendulum 
+
+Q2: Why not just gyroscope? 
+    - Drifts 
+    - This error accumulates over time in the angle as 
+        we're integrating this rotation. 
+
+Resources: 
+1.  MODELING AND IMPLEMENTATION OF PID CONTROL FOR AUTONOMOUS ROBOTS by Todd Williamson 
+    http://www.dtic.mil/dtic/tr/fulltext/u2/a473631.pdf
+
+2. Balancing Robot. 
+   http://blog.tkjelectronics.dk/2012/09/a-practical-approach-to-kalman-filter-and-how-to-implement-it/
+   https://en.wikipedia.org/wiki/Kalman_filter#Example_application.2C_technical
+
+
+3. Complimentary Filter
+    https://bayesianadventures.wordpress.com/2013/10/20/gyroscopes-accelerometers-and-the-complementary-filter/
+    https://www.youtube.com/watch?v=6iSl4WL1PkI
+
+4. Self balancing Robot instructable. 
+    https://www.instructables.com/id/Self-Balancing-Robot/
+    https://www.instructables.com/id/Arduino-Self-Balancing-Robot-1/
+
+5. Kalman Filter. 
+   https://math.stackexchange.com/questions/840662/an-explanation-of-the-kalman-filter
+   https://www.youtube.com/watch?v=VFXf1lIZ3p8
+
+6. Sensor. 
+    https://playground.arduino.cc/Main/MPU-6050
+    http://42bots.com/tutorials/arduino-script-for-mpu-6050-auto-calibration/
+    https://www.instructables.com/id/Guide-to-gyro-and-accelerometer-with-Arduino-inclu/
+
+7. Motor control / deadzone. 
+    https://www.control.isy.liu.se/student/tsiu61/file/pm_pid.pdf
+
+8. PID Control. 
+    http://wikis.controltheorypro.com/PID_Controller
+    http://brettbeauregard.com/blog/2011/04/improving-the-beginners-pid-introduction/
+    https://robotics.stackexchange.com/questions/8601/choosing-a-proper-sampling-time-for-a-pid-controller
+    How to Visually Tune PID Control Loops: https://www.youtube.com/watch?v=-bQdrvSLqpg
+    https://www.crossco.com/blog/basics-tuning-pid-loops
+    http://robotsforroboticists.com/pid-control/
+    PID Without a PhD: https://www.wescottdesign.com/articles/pid/pidWithoutAPhd.pdf
+    https://www.csimn.com/CSI_pages/PIDforDummies.html
+

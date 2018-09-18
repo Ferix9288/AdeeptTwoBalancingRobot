@@ -1,239 +1,50 @@
-""" 
 
-Following side project is to write the appropriate PID controller to balance two wheel robot. 
+##Description 
 
-Future steps: 
-    1. Handle turning. 
-    2. Follow someone. 
+The following side project is to write my own Kalman Filter and PID controller to balance a two wheel robot. 
 
-"""
+*High Overview*
+1. Use Kalman filter for sensor fusion of both accelerometer and gyroscope measurements to calculate pitch. In the end, we will get a better estimate of true angle by accounting for short-term noises (the accelerometer) and long-term biases (drift from gyroscope)
+2. Use this estimated angle in a PID controller and aim to get this pitch angle 0. 
 
+*Hardware*
+Used Adeept Arduino Two Wheel Balancing Robot kit. 
+Amazon Link: https://www.amazon.com/Adeept-Self-Balancing-Accelerometer-Gyroscope-Avoidance/dp/B076XVD9B9
 
-High Overview
-    1. Use Kalman filter for sensor fusion of both accelerometer and gyroscope measurements to calculate pitch. In the end, we will get a better estimate of true angle by accounting for noises and biases.
-    2. Use this estimated angle in a PID controller and try to get it to 0. 
+*Software* 
+selfBalance.ino //main code 
 
-Notes: other methodology would have been a complimentary filter but supposedly KF is more accurate (and a lot more challenging to derive/figure out)
+Libraries
+    PIDController //my library to import in Arduino 
+    AngleKalmanFilter //my library to import in Arduino 
+    I2CDev1 //third party 
+    MPU6050 //third party
+    MsTimer2 //third party 
 
+Third party libraries can be found here: 
+https://www.adrive.com/public/97GXSs/Adeept_SelfBalancingRobotKit-V1.0.zip
 
+##Current Status
+Kalman Filter on pitch successfully implemented and tested. 
 
-:::::::::::::::
-: APPENDIX
-::::::::::::::::::
---Calculation / Set-up -- 
-    Specifically, the angle we care about is the pitch (y, z). 
-        atan2(y, z) 
-
-        We would like pitch to stay at 0 (vertical upright)
-
-    Feed this into our Kalman Filter. 
-
---Figuring out Angle orientation/Calibrating Sensor--
-
-    If Upright: 
-        ax - 413
-        ay - -879
-        az - 16446
-        gx - -770
-        gy - -218
-        gz - 82
+Having trouble with setting the PID constants of the controller where it can only stabilize for about 7 to 8 seconds. I'm able to dynamically change and fine-tune the constants via Bluetooth, but have yet to find the magical combination of numbers. 
 
 
-    If fall forward: ( increasing y, adding gravity, z positive)
-        ax - 329
-        ay - 13973
-        az - 8052
-        gx - -771
-        gy - -216
-        gz - 80
+## Future steps
+1. Continue fine-tuning PID constants.
+    - Will try doing a bluetooth dump on PID term contributions (the P, I, and D)
+    - From above, try either modeling the system or just better understand its behavior to adjust constants accordingly. 
+    - Maybe cry some more as to how painful this process is. 
+    - Also delve more into Control theory. 
+2. Handle movement control. (i.e. turning, forward, reverse)
+3. Object avoidance. 
+4. Follow me. 
 
+## References, Appendix, and More Info
 
-        ~pitch 60 degree forward 
+*Main Sources of Inspiration* 
+[Adeept's Provided Code](https://www.adrive.com/public/97GXSs)
+[Lauszus Balancing Robot](https://github.com/TKJElectronics/BalancingRobotArduino)
 
-    If fall back: 
-        ax - 1093
-        ay - -15430
-        az - 5846
-        gx - -783
-        gy - -212
-        gz - 82
-
-
-        ~pitch -60 degree back
-
-    gyroRate = (gyroAdc-gyroZero)/sensitivity
-        -sensitivity from MPU6050 spec sheet is 131
-        -gyroZero is obtained from initial calibration at rest
-        -should be using gx - rotation along the x-axis gives you rate change of pitch
-
-    Code in Main looop to test pitch:
-        /* Loop to check if it correctly identifies vertical as phi=0. Forward = CW = 0 to -pi; Backward = CCW = 0 to pi. */
-        mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-        Serial.println("New:");
-        Serial.println(ay);
-        Serial.println(az);
-        float anglePitch = getAngleDegree(ay, az);
-        Serial.println(anglePitch);    
-        //Gyroscope value reading needs to subtract away the starting bias and divide byb sensitivity
-        Serial.println("gx: ");
-        Serial.println(gx);    
-        float gx2 = -1*(gx - gxBias)/131.0f; //gyro has opposite convention of pos/neg
-        Serial.println(gx2);    
-        delay(500);
-
---Putting everything together -- 
-Code in loop: 
-  unsigned long currentMillis = millis();
-  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-  float dt = (currentMillis - prevMillis)/1000.0f;
-  runKalman(dt);
-  float motorPwm = pidPitch.update(pitchAngle);
-  Serial.print("PID: "); Serial.println(motorPwm);
-  motorControl(AIN1,AIN2, motorPwm);
-  motorControl(BIN1,BIN2, motorPwm);
-  prevMillis = currentMillis;
-
---Tuning PID-- (manual)
-1. Set P until system oscillates. 
-    -Found when Kp ~ 15.25
-2. Start increasing Ki so it returns back to zero position.
-    ~ Ki = 0.18 
-    ~ Once I got Kp = 15.25 and Ki = 0.18, I upped sampling rate from 100ms to 50ms.
-3. Then set D to smooth out the oscillations.
-
---Motor Control-- 
-Right motor is stiffer/locks more 
-    DEAD ZONE for Left Motor = 0-45 PWM
-    DEAD ZONE for Right Motor = 
-
---Complementary Filter--
-    -Reason: gyroscope becomes noiser as time passes due to drift 
-    -therefore, gyroscope measurements goes through a high-pass filter ; accelerometer goes through a low-pass filter 
-    -Laymen's expression: 
-        -Trust gyroscope short-term fast changes, trust accelerometer long-term slow changes
-
-    Equation: 
-        filter = 0.98 (theta - dt * gyro) - 0.02 * acc
-            :Theta = Angle of the robot / tilt 
-            :dt = change in time 
-            :gyro = gyro measurement 
-            :acc = accelerometer measurement
-
-
---Kalman Filter-- [Derivation/Explanation]
-Predict Phase: [Motion Update]
-    1. x_-hat = F * x + B*u 
-        where:
-            -x_-hat is the a priori estimate. Laymen: predicted state 
-            -F is our state transition function. 
-            -x is our current state
-            -B is our control input
-            -u is some motion noise, assumed gaussian / white noise 
-
-        Can think of this as Total Probability and Convolution (i.e. addition) 
-        In term of Gaussian with some m and o in a 1D case:
-            m_new = m + u (u is the motion)
-            o_new^2 = o^2 + r^2 (r is covariance of motion)
-
-
-    2. P_-hat = Covariance(x_-hat) = FPF^T + Q 
-        where: 
-            -P_-hat is the covariance of the priori estimate. 
-            -P is the covariance of the priori estimate one iteration before. 
-            -F is the state transition function 
-            -Q is the covariance of u (the motion noise)
-
-Update Phase:    
-    
-    x_hat = x_-hat + K*y
-        where:
-            -K is the Kalman Gain 
-            -y is called the innovation 
-
-
-        Laymen's description: 
-            The new state x_hat is the multiplication of two probability densities/function - either one from predict or the other from measurement 
-    
-        Innovation : z - Hx_-hat 
-            -z are the measurements 
-            -H is the measurement function
-
-        Intuition: 
-            If we trust our prediction more, we expect K to be small. Else, if process/predict is noisy, we expect K to be large. Thus, can think of K as: 
-
-                K = Factor(Process Noise) / Factor(Measurement Noise)
-                    - Process Noise = P_-hat * H^T 
-                    - Measurement Noise = HP_-hatH^T+ R
-                        -Where R is the covariance of measurement noise 
-
-                No process noise: lim P_-hat ->0, K=0
-                    x_hat = x_-hat + K*y 
-                    x_hat = x_-hat + 0 = x_-hat (equivalent to just the predicted measurement)
-
-                No measurement noise: lim R->0, K = 1/H, 
-                    x_hat = x_-hat + K*y 
-                    x_hat = x_-hat + 1/H(z - H*x_-hat)
-                    x_hat = z (equivalent to just the measurement)
-
-
-           Measurement update can be thought of as Bayes' rule. What's the probability of the measurement given the prior. 
-
-    P_hat = (I-KH)P_-hat
-        -lastly, update the covariance of our newly calculated x_hat
-        -think cov^2 - k*cov^2 ... so :
-            (1-k)*cov^2
-                -in this case k is Kalman Gain projected onto Measurement space 
-                -1 * cov^2 is like Identity? 
-                -i.e. (1-k) matrix would be (I - K*H)
-
-
-In a multivariate case, can typically be separated as :
-    Observables - i.e. states that we can measure
-    Hiddens  - i.e. states that we know based on observables 
-
-    ex: position = observable, velocity = hidden 
-
-    Then what we are doing is multiplying the prior (we know observable, but not hidden) with the correlation of observable/hidden to give new probability distribution, i.e. the posterior. 
-
-Terminologies
-    Variance - is how spread that variable is assuming Gaussian distribution 
-    Covariance - how do two variables correlate with each other. 
-        - covar(x, y) = E|xy| - E|x|E|y| 
-        - covar = 0 if variables are completely independent 
-
-
---Why Sensor Fusion--
-Q1: Why not just accelerometer alone? 
-    -Cannot distinguish if translational movement (i.e. the robot is moving forward/backward) or tilting 
-        -Static tilted pendulum vs moving tilted pendulum 
-
-Q2: Why not just gyroscope? 
-    - Drifts 
-    - This error accumulates over time in the angle as 
-        we're integrating this rotation. 
-
-Resources: 
-1.  MODELING AND IMPLEMENTATION OF PID CONTROL FOR AUTONOMOUS ROBOTS by Todd Williamson 
-    http://www.dtic.mil/dtic/tr/fulltext/u2/a473631.pdf
-
-2. Balancing Robot. 
-   http://blog.tkjelectronics.dk/2012/09/a-practical-approach-to-kalman-filter-and-how-to-implement-it/
-   https://en.wikipedia.org/wiki/Kalman_filter#Example_application.2C_technical
-
-
-3. Complimentary Filter
-    https://bayesianadventures.wordpress.com/2013/10/20/gyroscopes-accelerometers-and-the-complementary-filter/
-    https://www.youtube.com/watch?v=6iSl4WL1PkI
-
-4. Self balancing Robot instructable. 
-    https://www.instructables.com/id/Self-Balancing-Robot/
-    https://www.instructables.com/id/Arduino-Self-Balancing-Robot-1/
-
-5. Kalman Filter. 
-   https://math.stackexchange.com/questions/840662/an-explanation-of-the-kalman-filter
-   https://www.youtube.com/watch?v=VFXf1lIZ3p8
-
-6. Sensor. 
-    https://playground.arduino.cc/Main/MPU-6050
-    http://42bots.com/tutorials/arduino-script-for-mpu-6050-auto-calibration/
-    https://www.instructables.com/id/Guide-to-gyro-and-accelerometer-with-Arduino-inclu/
+*For Personal Notes and other links*
+Please refer to [notes](../NOTES). These are my own personal notes whilst working on this side project. For example, the theory behind Kalman Filter, how to handle raw data from sensors, tuning PID constants, etc. 
