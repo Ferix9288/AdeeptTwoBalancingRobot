@@ -35,7 +35,11 @@ float PIDController::update(float measurement, float dt) {
     if (_totalError > _constraint) _totalError = _constraint; 
     if (_totalError < -_constraint) _totalError = -_constraint;
 
-    float pid = _kp * error + _kd * deltaError + _ki*_totalError;
+    float pTerm = _kp*error; 
+    float dTerm = _kd*deltaError; 
+    float iTerm = _ki*_totalError;
+
+    float pid = pTerm + dTerm + iTerm;
     if (pid > 0) pid += _bias;
     if (pid < 0) pid -= _bias; 
 
@@ -45,6 +49,9 @@ float PIDController::update(float measurement, float dt) {
     Serial.print("\t"); Serial.print("Error - "); Serial.println(error); 
     Serial.print("\t"); Serial.print("Delta - "); Serial.println(deltaError);
     Serial.print("\t"); Serial.print("Total - "); Serial.println(_totalError);
+    Serial.print("\t"); Serial.print("P - "); Serial.println(pTerm, 4);
+    Serial.print("\t"); Serial.print("I - "); Serial.println(iTerm, 4);
+    Serial.print("\t"); Serial.print("D - "); Serial.println(dTerm, 4);
     Serial.print("\t"); Serial.print("Output - "); Serial.println(pid);
     #endif
 
@@ -66,9 +73,9 @@ float PIDController::update(float measurement, float dt) {
 void PIDController::printMe()
 {
     Serial.println("PID Controller Values:");
-    Serial.print("\t"); Serial.print("kp - "); Serial.println(_kp); 
-    Serial.print("\t"); Serial.print("ki - "); Serial.println(_ki); 
-    Serial.print("\t"); Serial.print("kd - "); Serial.println(_kd);
+    Serial.print("\t"); Serial.print("kp - "); Serial.println(_kp, 4); 
+    Serial.print("\t"); Serial.print("ki - "); Serial.println(_ki, 4); 
+    Serial.print("\t"); Serial.print("kd - "); Serial.println(_kd, 4);
     Serial.print("\t"); Serial.print("bias - "); Serial.println(_bias);
     Serial.print("\t"); Serial.print("Total - "); Serial.println(_totalError);
 }

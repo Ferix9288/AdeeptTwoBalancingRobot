@@ -51,8 +51,8 @@ AngleKalmanFilter kf;
 
 //--PID Controller for pitch--
 const float KP_PITCH = 14.5f; 
-const float KD_PITCH = 0.00f; 
 const float KI_PITCH = 0.31f; 
+const float KD_PITCH = 0.00f; 
 const float CONSTRAINT_PITCH = 3500;
 const float REF_PITCH = 0.0f; //reference point
 const float DEADZONE_BIAS = 10;
@@ -70,6 +70,7 @@ PIDController pidPitch = PIDController(REF_PITCH, KP_PITCH, KD_PITCH, KI_PITCH, 
 #define PWMA 9
 #define PWMB 10
 #define STBY 8
+const int FALLING_PITCH = 60; 
 const int MAX_PWM = 255;
 
 //--For RGB PWM--
@@ -200,19 +201,24 @@ void interrupt()
   sei(); //re-enable interrupts
   mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz); //get sensor data
   runKalman(INTERRUPT_S); //run kalman to get pitch
+
   float motorPwmA = pidPitch.update(pitchAngle, INTERRUPT_S) * -1; //if falling forward, move forward. If falling back, move back. Hence, opposite of PID output.
   float motorPwmB = motorPwmA; 
 
- //issue is right motor is stiffer. hence needs extra boost.
-  if (motorPwmB > 0) motorPwmB += motorRightBias;
-  if (motorPwmB < 0) motorPwmB -= motorRightBias;
-
-  //want motor control as lean as possible so there's little delay in between triggering the motors.
-  motorPwmA = motorControl(AIN1,AIN2, motorPwmA);
-  motorPwmB = motorControl(BIN1,BIN2, motorPwmB);
+  //Killing the motor if falling to prevent significant damage to the robot 
+  if (pitchAngle > FALLING_PITCH or pitchAngle <-FALLING_PITCH) stopRobot();
+  else {
+    //issue is right motor is stiffer. hence needs extra boost.
+    if (motorPwmB > 0) motorPwmB += motorRightBias;
+    if (motorPwmB < 0) motorPwmB -= motorRightBias;
   
-  motorOutput(PWMA, motorPwmA);
-  motorOutput(PWMB, motorPwmB);
+    //want motor control as lean as possible so there's little delay in between triggering the motors.
+    motorPwmA = motorControl(AIN1,AIN2, motorPwmA);
+    motorPwmB = motorControl(BIN1,BIN2, motorPwmB);    
+    
+    motorOutput(PWMA, motorPwmA);
+    motorOutput(PWMB, motorPwmB);    
+  }
 }
 
 /**
@@ -230,7 +236,8 @@ void runKalman(float dt)
   #ifdef DEBUG_KALMAN
   Serial.println("-----");   
   Serial.print("Iteration "); Serial.println(iter); 
-  Serial.print("Measurement: "); Serial.print(measurementPitch); Serial.print("; rateGyro: "); Serial.print(rateGyro); Serial.print("; dt: "); Serial.println(dt);
+  Serial.print("Measurement: "); Serial.print(measurementPitch); Serial.print("; rateGyro: "); Serial.print(rateGyro); Serial.print("; dt: "); Serial.println(dt, 4);
+  Serial.print("Pitch:"); Serial.println(pitchAngle);
   #endif
 
   pitchAngle = kf.iterate(dt, rateGyro, measurementPitch);
@@ -293,10 +300,7 @@ void loop() {
        switch(Serial.read()){
           //Stop the robot  
           case 's': {
-            mode = STOP;
-            MsTimer2::stop(); 
-            motorOutput(PWMA, 0);
-            motorOutput(PWMB, 0); 
+            stopRobot();
             break;
           }
 
@@ -357,21 +361,14 @@ void loop() {
   //To Do: Different modes and their effects to be coded later
 }
 
-/** Test loop to see KF and PID behavior */
-//void loop()
-//{
-//  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-//  float dt = (millis() - prevMillis)/1000.0f;
-//  prevMillis = millis();
-//  runKalman(dt);
-//  float motorPwm = pidPitch.update(pitchAngle, dt);
-//  float motorA = motorControl(AIN1,AIN2, motorPwm);
-//  float motorB = motorControl(BIN1,BIN2, motorPwm);
-//  Serial.print("dt: "); Serial.println(dt);  
-//  Serial.print("PID: "); Serial.println(motorPwm);  
-//}
-
-  
+/** Stops the robot. */
+void stopRobot()
+{
+  mode = STOP;
+  MsTimer2::stop(); 
+  motorOutput(PWMA, 0);
+  motorOutput(PWMB, 0);   
+}
 
 //-------------------------------------
 /** Helper Functions **/ 
@@ -440,4 +437,111 @@ float getSerialInt()
 
 }
 
+
+//-------------------------------------
+/** Misc/Test Functions **/ 
+//-------------------------------------
+/** Test loop to see KF and PID behavior 
+ *  
+*/
+//void loop()
+//{
+//
+////  //if serial is available / bluetooth
+//  if(Serial.available() > 0){  
+//       switch(Serial.read()){
+//          //Stop the robot  
+//          case 's': {
+//            mode = STOP; 
+//            stopRobot();
+//            break;
+//          }
+//
+//          case 'r': {
+//            mode = RUN;
+//            break;
+//          }
+//       } //end switch
+//  }
+//
+//  if (mode == RUN) {
+//    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+//    float dt = (millis() - prevMillis)/1000.0f;
+//    prevMillis = millis();
+//    runKalman(dt);
+//    float motorPwmA = pidPitch.update(pitchAngle, INTERRUPT_S) * -1; //if falling forward, move forward. If falling back, move back. Hence, opposite of PID output.
+//    float motorPwmB = motorPwmA; 
+//  
+//    //Killing the motor if falling to prevent significant damage to the robot 
+//    if (pitchAngle > FALLING_PITCH or pitchAngle <-FALLING_PITCH) stopRobot();
+//    else {
+//      //issue is right motor is stiffer. hence needs extra boost.
+//      if (motorPwmB > 0) motorPwmB += motorRightBias;
+//      if (motorPwmB < 0) motorPwmB -= motorRightBias;
+//    
+//      //want motor control as lean as possible so there's little delay in between triggering the motors.
+//      motorPwmA = motorControl(AIN1,AIN2, motorPwmA);
+//      motorPwmB = motorControl(BIN1,BIN2, motorPwmB);    
+//      
+////      motorOutput(PWMA, motorPwmA);
+////      motorOutput(PWMB, motorPwmB);    
+//    }
+//    Serial.print("PID: "); Serial.print(motorPwmA); Serial.print(" "); Serial.println(motorPwmB);    
+//  }
+//}
+
+/** Test loop 2 to control motor incrementally and see effects of PWM.
+ *  
+*/
+
+//Use below variables to increment
+//float motorPwmA = 0;
+//float motorPwmB = 0;
+//float setPWM = 0;
+//void loop()
+//{
+//
+////  //if serial is available / bluetooth
+//  if(Serial.available() > 0){  
+//       switch(Serial.read()){
+//          //Stop the robot  
+//          case 's': {
+//            mode = STOP;
+//            stopRobot();
+//            break;
+//          }
+//
+//          case 'r': {
+//            mode = RUN;
+//            //rerun setup
+//            setup(); 
+//            motorPwmA = setPWM;
+//            motorPwmB = setPWM;
+//            break;
+//          }
+//
+//          //change the start pwm
+//          case 'p': {
+//            setPWM = getSerialFloat();
+//          }
+//       } //end switch
+//  }
+//
+//  if (mode == RUN) {
+//    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+//    float dt = (millis() - prevMillis)/1000.0f;
+//    prevMillis = millis();
+//    runKalman(dt);
+//
+//    if (motorPwmA >= MAX_PWM) motorPwmA = MAX_PWM; 
+//    if (motorPwmB >= MAX_PWM) motorPwmB = MAX_PWM;
+//    
+//    motorOutput(PWMA, motorPwmA);
+//    motorOutput(PWMB, motorPwmB);    
+//
+//    //kill the motor once the pitch becomes negative
+//    if (pitchAngle > 55 or pitchAngle <-55) stopRobot();
+//    Serial.print("PID: "); Serial.print(motorPwmA); Serial.print(" "); Serial.println(motorPwmB);    
+//  }
+//}
 

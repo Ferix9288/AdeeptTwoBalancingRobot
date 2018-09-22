@@ -59,18 +59,6 @@
         Serial.println(gx2);    
         delay(500);
 
---Putting everything together -- 
-Code in loop: 
-  unsigned long currentMillis = millis();
-  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-  float dt = (currentMillis - prevMillis)/1000.0f;
-  runKalman(dt);
-  float motorPwm = pidPitch.update(pitchAngle);
-  Serial.print("PID: "); Serial.println(motorPwm);
-  motorControl(AIN1,AIN2, motorPwm);
-  motorControl(BIN1,BIN2, motorPwm);
-  prevMillis = currentMillis;
-
 --Tuning PID-- (manual)
 1. Set P until system oscillates. 
     -Found when Kp ~ 15.25
@@ -84,6 +72,83 @@ Right motor is stiffer/locks more
     DEAD ZONE for Left Motor = 0-45 PWM
     DEAD ZONE for Right Motor = 0-75 PWM 
 
+--Putting everything together -- 
+Code in loop: 
+  unsigned long currentMillis = millis();
+  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  float dt = (currentMillis - prevMillis)/1000.0f;
+  runKalman(dt);
+  float motorPwm = pidPitch.update(pitchAngle);
+  Serial.print("PID: "); Serial.println(motorPwm);
+  motorControl(AIN1,AIN2, motorPwm);
+  motorControl(BIN1,BIN2, motorPwm);
+  prevMillis = currentMillis;
+
+
+--Problem : Failing to find perfect PID terms -> Solution: Modeling -- 
+Ignore all translational motion for now (i.e. forward or backwards). Only care about perfecting PID to maintain pitch at 0 degrees. I think two major things that need to be modeled: 
+    1. Rotation due to gravity. 
+    2. Rotation counteracted by motor control.
+
+:Modeling Gravity effects on Rotation:
+    Without any motor control, let robot free fall forward or backward.
+        -Run Kalman Filter. Get appropriate rate from gyroscope - Kalman's state rate bias. 
+        -Assume symmetry. 
+    End result: have some mapping of pitch to gravity effect's on rate of pitch rotation (i.e. the x-axis)
+        -probably use a line or curve of best fit.
+        -ex: 
+            First iteration: at 10 degrees, maybe it's 5 degrees / second. 
+            Second iteration (1s) : at 15 degrees, now rate is 20 degrees / second. etc. 
+
+:Modeling Motor Control Effects on Rotation:
+    This is a lot harder because: 
+        -gravity always at play 
+        -dead zone with motors 
+
+    Rough plan: 
+        Collect data from multiple runs 
+        The motor control effect can be roughly estimated as...
+            rotationOfMotor(pwm) = (next_pitch - last_pitch)/dt - gravity(last_pitch)
+
+    Problems to consider: 
+        1. These are just taking snapshots of moment in time / discretized. Actual system is continuous so don't think this will produce a very accurate model of motor control effect but hey - don't know until you try it. 
+        2. deadzone is hard to model... Sometimes lower PWM does cause the wheels to turn. 
+
+    Problems actually encountered:
+        1. Because of debugging statements, sampling rate is a lot slower ~ 130ms 
+            Result: System is extremely unstable. Hard for robot to oscillate. 
+        2. Try incrementally increasing PWM in one direction from fallen state. Terminate once falling other angle. Dump results.
+            -However, even full PWM cannot get the robot to go up (front fallen, 255 PWM can't bring it up)
+        3. Do #2 but have robot fallen back, move wheels forward. 
+            Can't pick itself up. Robot starts spinning on its side. 
+        4. How about setting a designated PWM and a corresponding tilt. 
+            Hold onto it. Then let go. 
+            Record data. 
+
+:Creating the System/Simulator::
+Next steps: 
+    1. Port C++ PID Controller to Python. 
+        -Run equivalency tests. Based on pitch angle, expect same PWM output to the motor control.
+        -Tests can be checked from data dump of actual system. 
+
+How the System would work: 
+    1. Get current pitch of the system. 
+    2. Current rotation rate = effects of gravity + effects of motor control 
+    3. Update new pitch by dt * rotation. 
+
+Verifying correctness of system:
+    -Collect data from multiple runs. 
+    -See if the system approximates what happens in the actual world. Repeat 5-6 cases.
+    -of course, this is an nonlinear system so I don't expect it to be perfect. 
+
+::Assuming Modeling Works - How to Find PID-- 
+Once all the above is complete and tested, then create a way to 'score' different combinations of PID constants. 
+    -I.e. score can just be total error 
+        -if pitch is > than a certain angle, then test is considered a fail. 
+        -if feedback has huge oscillations, then test will have a lot of error. 
+    -Then apply 'twitch' algorithm where certain constants go up/down. 
+        -basically a hill-climbing algorithm 
+        -maybe explore using simulated annealing library from scipy 
 
 --Complementary Filter--
     -Reason: gyroscope becomes noiser as time passes due to drift 

@@ -136,7 +136,8 @@ float AngleKalmanFilter::iterate(float dt, float rateGyro, float angleAccel)
 */
 void AngleKalmanFilter::_predict(float dt, float rateGyro)
 {
-    //for memory and legibility, just writing out the state update equations 
+    //for memory and legibility, just writing out the state update equations as opposed to making it a matrix operation
+
     _angle += dt*(rateGyro - _angleDotBias);
     //_angleDotBias = _angleDotBias  -- Bias stays the same 
 
